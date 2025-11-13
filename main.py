@@ -10,97 +10,129 @@ HTML_FORM = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Validador de Webhooks Bsale</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f7f9fb;
-            padding: 40px;
-        }
-        .container {
-            max-width: 520px;
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin: auto;
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-        }
-        input, select, button {
-            width: 100%;
-            padding: 10px;
-            margin: 8px 0;
-            font-size: 16px;
-        }
-        button {
-            background: #0078d4;
-            color: white;
-            border: none;
-            cursor: pointer;
-            border-radius: 6px;
-        }
-        button:hover {
-            background: #005fa3;
-        }
-        .resultado {
-            margin-top: 20px;
-            font-weight: bold;
-            font-size: 16px;
-            text-align: center;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validador de Webhooks Bsale</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f8f8f8;
+      padding: 30px;
+    }
+    .container {
+      max-width: 600px;
+      background: #ffffff;
+      padding: 25px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin: auto;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    img.logo {
+      width: 140px;
+      margin-bottom: 15px;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+      display: block;
+      text-align: left;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #ff6600;
+      color: white;
+      border: none;
+      padding: 12px;
+      margin-top: 15px;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #e65c00;
+    }
+    #resultado {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 6px;
+      display: none;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .ok { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+    .alerta { background-color: #fff3cd; color: #856404; }
+  </style>
 </head>
 <body>
-<div class="container">
-    <h2>Validador de Webhooks Bsale</h2>
-    <form id="webhookForm">
-        <label>ID de cuenta (CPN):</label>
-        <input type="number" name="cpn" required placeholder="Ej: 74244">
+  <div class="container">
+    <img src="https://bsale-io.s3.amazonaws.com/menu-v2/images/bsale-orange.svg" alt="Bsale Logo" class="logo">
+    <h1>Validador de Webhooks Bsale</h1>
+    <label for="cpn">ID de Cuenta (CPN)</label>
+    <input type="number" id="cpn" placeholder="Ej: 74244">
 
-        <label>Tipo de evento a probar:</label>
-        <select name="topic" required>
-            <option value="document">Documentos</option>
-            <option value="stock">Stock</option>
-        </select>
+    <label for="url">URL del Webhook</label>
+    <input type="text" id="url" placeholder="https://tuservidor.com/webhook">
 
-        <label>URL del Webhook:</label>
-        <input type="url" name="url" required placeholder="https://tuwebhook.com/endpoint">
+    <label for="topic">Tipo de evento</label>
+    <select id="topic">
+      <option value="stock">Stock</option>
+      <option value="document">Documentos</option>
+    </select>
 
-        <button type="submit">Enviar prueba</button>
-    </form>
-    <div class="resultado" id="resultado"></div>
-</div>
+    <button onclick="enviarWebhook()">Enviar prueba</button>
 
-<script>
-document.getElementById("webhookForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const data = Object.fromEntries(formData.entries());
-    const resultado = document.getElementById("resultado");
-    resultado.style.color = "black";
-    resultado.innerText = "⏳ Enviando prueba...";
-    try {
+    <div id="resultado"></div>
+  </div>
+
+  <script>
+    async function enviarWebhook() {
+      const cpnId = document.getElementById('cpn').value.trim();
+      const url = document.getElementById('url').value.trim();
+      const topic = document.getElementById('topic').value;
+      const resultado = document.getElementById('resultado');
+
+      resultado.style.display = 'block';
+      resultado.className = '';
+      resultado.textContent = '⏳ Enviando notificación de prueba...';
+
+      if (!cpnId || !url) {
+        resultado.textContent = '⚠️ Debes ingresar el ID de cuenta y la URL del webhook.';
+        resultado.className = 'alerta';
+        return;
+      }
+
+      try {
         const res = await fetch("/test_webhook", {
-            method: "POST",
-            body: new URLSearchParams(data),
+          method: "POST",
+          body: new URLSearchParams({ cpn: cpnId, topic: topic, url: url }),
         });
+
         const json = await res.json();
-
-        if (json.mensaje.startsWith("✅")) resultado.style.color = "green";
-        else if (json.mensaje.startsWith("❌")) resultado.style.color = "red";
-        else resultado.style.color = "orange";
-
-        resultado.innerText = json.mensaje;
-    } catch {
-        resultado.style.color = "red";
-        resultado.innerText = "⚠️ No se pudo contactar con el servidor.";
+        resultado.textContent = json.mensaje;
+        if (json.mensaje.startsWith("✅")) resultado.className = 'ok';
+        else if (json.mensaje.startsWith("⚠️")) resultado.className = 'alerta';
+        else resultado.className = 'error';
+      } catch (error) {
+        resultado.textContent = "❌ No se pudo contactar con el validador. Intenta nuevamente.";
+        resultado.className = 'error';
+      }
     }
-});
-</script>
+  </script>
 </body>
 </html>
 """
@@ -125,51 +157,39 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
     }
 
     inicio = time.time()
-
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             respuesta = await client.post(url, json=payload)
         duracion = round(time.time() - inicio, 2)
 
+        # Rechazar si se demoró más de 3 segundos
         if duracion > 3.0:
-            return JSONResponse({"mensaje": f"❌ El webhook superó el tiempo máximo permitido ({duracion}s)"})
+            return JSONResponse({"mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale considera esto como una falla."})
 
-        status = respuesta.status_code
+        # Validar tipo de contenido
         content_type = respuesta.headers.get("content-type", "").lower()
-        body = respuesta.text.strip().lower()
+        if "application/json" not in content_type and "text/json" not in content_type:
+            return JSONResponse({"mensaje": f"⚠️ La URL respondió correctamente, pero no parece ser un webhook válido (tipo de respuesta: {content_type})."})
 
-        # 1️⃣ Código HTTP válido
-        if not (200 <= status < 300):
-            return JSONResponse({"mensaje": f"❌ El webhook respondió con código {status}, debe ser 2xx."})
+        # Validar código HTTP
+        if not (200 <= respuesta.status_code < 300):
+            if respuesta.status_code == 405:
+                return JSONResponse({"mensaje": "❌ El webhook no acepta solicitudes de tipo POST. Verifica que esté configurado correctamente."})
+            return JSONResponse({"mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code})."})
 
-        # 2️⃣ Detectar páginas web (HTML)
-        if "text/html" in content_type or "<html" in body or "<!doctype" in body:
-            return JSONResponse({"mensaje": f"❌ La URL respondió {status}, pero parece una página web (Content-Type: {content_type})"})
-
-        # 3️⃣ Webhook típico (aceptamos vacío, JSON o textos comunes)
-        if (
-            body == "" or
-            "application/json" in content_type or
-            "json" in content_type or
-            "ok" in body or
-            "success" in body or
-            "ack" in body or
-            "processing" in body or
-            "received" in body
-        ):
-            return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({status}) en {duracion}s"})
-
-        # 4️⃣ Si pasa todo pero no se reconoce el cuerpo
-        return JSONResponse({"mensaje": f"⚠️ La URL respondió {status}, pero el contenido no parece típico de un webhook (Content-Type: {content_type})"})
+        # OK
+        return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion} segundos (código {respuesta.status_code})."})
 
     except httpx.ReadTimeout:
         duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"❌ El webhook no respondió dentro del tiempo permitido (timeout de {duracion}s)"})
+        return JSONResponse({"mensaje": f"⏱ El webhook no respondió dentro del tiempo permitido (3 segundos). Bsale considera esto como una falla."})
+
     except httpx.RequestError as e:
         duracion = round(time.time() - inicio, 2)
         if isinstance(e.__cause__, socket.gaierror):
-            return JSONResponse({"mensaje": f"❌ La URL indicada no es válida o no existe ({duracion}s)"})
-        return JSONResponse({"mensaje": f"⚠️ No se pudo conectar con el webhook: {str(e)} ({duracion}s)"})
+            return JSONResponse({"mensaje": f"❌ La dirección ingresada no existe o no se pudo conectar ({duracion}s)."})
+        return JSONResponse({"mensaje": f"⚠️ No se pudo establecer conexión con la URL del webhook ({duracion}s). Verifica la dirección."})
+
     except Exception as e:
         duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"⚠️ Error inesperado: {str(e)} ({duracion}s)"})
+        return JSONResponse({"mensaje": f"⚠️ Error inesperado al intentar enviar la notificación: {str(e)} ({duracion}s)."})
