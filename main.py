@@ -144,6 +144,14 @@ async def home():
 
 @app.post("/test_webhook")
 async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = Form(...)):
+    # URLs de integradores frecuentes que siempre consideramos válidas
+    integradores_frecuentes = [
+        "https://app.jumpseller.com/bsale/notifications"
+    ]
+
+    # Si la URL es de un integrador frecuente, devolver OK automáticamente
+    if url in integradores_frecuentes:
+        return JSONResponse({"mensaje": f"✅ La URL {url} es de un integrador frecuente y se considera válida automáticamente."})
     payload = {
         "rq": {
             "cpnId": cpn,
