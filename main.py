@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 import time
+import socket
 
 app = FastAPI()
 
@@ -79,23 +80,31 @@ document.getElementById("webhookForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
-    document.getElementById("resultado").innerText = "⏳ Enviando prueba...";
+    const resultado = document.getElementById("resultado");
+    resultado.style.color = "black";
+    resultado.innerText = "⏳ Enviando prueba...";
     try {
         const res = await fetch("/test_webhook", {
             method: "POST",
             body: new URLSearchParams(data),
         });
         const json = await res.json();
-        document.getElementById("resultado").innerText = json.mensaje;
+
+        // Colorear según resultado
+        if (json.mensaje.startsWith("✅")) resultado.style.color = "green";
+        else if (json.mensaje.startsWith("❌")) resultado.style.color = "red";
+        else resultado.style.color = "orange";
+
+        resultado.innerText = json.mensaje;
     } catch {
-        document.getElementById("resultado").innerText = "⚠️ No se pudo contactar con el servidor";
+        resultado.style.color = "red";
+        resultado.innerText = "⚠️ No se pudo contactar con el servidor.";
     }
 });
 </script>
 </body>
 </html>
 """
-
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -104,10 +113,6 @@ async def home():
 
 @app.post("/test_webhook")
 async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = Form(...)):
-    """
-    Envía una notificación simulada al webhook indicado y mide el tiempo de respuesta.
-    Si supera los 3 segundos (3000 ms), mostrará un mensaje de timeout.
-    """
     payload = {
         "rq": {
             "cpnId": cpn,
@@ -120,18 +125,26 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
         }
     }
 
+    inicio = time.time()
+
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            inicio = time.time()
             respuesta = await client.post(url, json=payload)
-            duracion = round((time.time() - inicio) * 1000, 2)
+        duracion = round(time.time() - inicio, 2)
 
-        if duracion > 3000:
-            return JSONResponse({"mensaje": f"❌ El webhook tardó demasiado en responder (timeout de {duracion} ms)"})
+        if duracion > 3.0:
+            return JSONResponse({"mensaje": f"❌ El webhook superó el tiempo máximo permitido ({duracion} segundos)"})
 
-        return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({respuesta.status_code}) en {duracion} ms"})
+        return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({respuesta.status_code}) en {duracion} segundos"})
 
     except httpx.ReadTimeout:
-        return JSONResponse({"mensaje": "❌ El webhook superó el tiempo máximo de respuesta (timeout de 3 segundos)"})
+        duracion = round(time.time() - inicio, 2)
+        return JSONResponse({"mensaje": f"❌ El webhook no respondió dentro del tiempo permitido (timeout de {duracion} segundos)"})
+    except httpx.RequestError as e:
+        duracion = round(time.time() - inicio, 2)
+        if isinstance(e.__cause__, socket.gaierror):
+            return JSONResponse({"mensaje": f"❌ La URL indicada no es válida o no existe (tiempo transcurrido: {duracion} segundos)"})
+        return JSONResponse({"mensaje": f"⚠️ No se pudo conectar con el webhook: {str(e)} (duración: {duracion} segundos)"})
     except Exception as e:
-        return JSONResponse({"mensaje": f"⚠️ Error al enviar el webhook: {str(e)}"})
+        duracion = round(time.time() - inicio, 2)
+        return JSONResponse({"mensaje": f"⚠️ Error al enviar el webhook: {str(e)} (duración: {duracion} segundos)"})
