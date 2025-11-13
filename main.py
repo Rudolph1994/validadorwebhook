@@ -134,6 +134,11 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
 
         if duracion > 3.0:
             return JSONResponse({"mensaje": f"❌ El webhook superó el tiempo máximo permitido ({duracion} segundos)"})
+        
+        # Validar si la respuesta es JSON y no HTML
+        content_type = respuesta.headers.get("content-type", "")
+        if "application/json" not in content_type.lower():
+            return JSONResponse({"mensaje": f"⚠️ La URL respondió 200, pero no parece ser un webhook válido (Content-Type: {content_type})"})
 
         return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({respuesta.status_code}) en {duracion} segundos"})
 
