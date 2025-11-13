@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validador de Webhooks Bsale</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f6fa;
+      padding: 30px;
+    }
+    .container {
+      max-width: 600px;
+      background: #fff;
+      padding: 25px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin: auto;
+    }
+    h1 {
+      text-align: center;
+      color: #2f3640;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+      display: block;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin-top: 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #resultado {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 5px;
+      display: none;
+    }
+    .ok { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Validador de Webhooks Bsale</h1>
+    <label for="cpn">CPN ID</label>
+    <input type="number" id="cpn" placeholder="Ej: 74244">
+
+    <label for="url">URL del Webhook</label>
+    <input type="text" id="url" placeholder="https://ejemplo.com/webhook">
+
+    <label for="topic">Tópico</label>
+    <select id="topic">
+      <option value="stock">Stock</option>
+      <option value="document">Document</option>
+    </select>
+
+    <button onclick="enviarWebhook()">Enviar Notificación</button>
+
+    <div id="resultado"></div>
+  </div>
+
+  <script>
+    async function enviarWebhook() {
+      const cpnId = document.getElementById('cpn').value.trim();
+      const url = document.getElementById('url').value.trim();
+      const topic = document.getElementById('topic').value;
+
+      const resultado = document.getElementById('resultado');
+      resultado.style.display = 'block';
+      resultado.textContent = 'Enviando notificación...';
+      resultado.className = '';
+
+      if (!cpnId || !url) {
+        resultado.textContent = 'Por favor ingresa el CPN ID y la URL del webhook.';
+        resultado.className = 'error';
+        return;
+      }
+
+      // Construimos el JSON de prueba
+      const body = {
+        rq: {
+          cpnId: parseInt(cpnId),
+          resource: topic === 'stock'
+            ? '/v2/stocks.json?variant=0&office=1'
+            : '/documents/0.json',
+          resourceId: "0",
+          topic: topic,
+          action: "put",
+          officeId: "1",
+          send: Date.now()
+        }
+      };
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+          resultado.textContent = `✅ Webhook respondió correctamente (HTTP ${response.status})`;
+          resultado.className = 'ok';
+        } else {
+          resultado.textContent = `❌ Webhook respondió con error (HTTP ${response.status})`;
+          resultado.className = 'error';
+        }
+      } catch (error) {
+        resultado.textContent = `🚫 Error al conectar con el webhook: ${error.message}`;
+        resultado.className = 'error';
+      }
+    }
+  </script>
+</body>
+</html>
