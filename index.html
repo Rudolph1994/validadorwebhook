@@ -6,61 +6,87 @@
   <title>Validador de Webhooks Bsale</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background: #f5f6fa;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f9f9f9;
       padding: 30px;
+      color: #333;
     }
     .container {
       max-width: 600px;
       background: #fff;
-      padding: 25px;
-      border-radius: 10px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
       margin: auto;
+      border-top: 6px solid #F37321;
+    }
+    .logo {
+      display: block;
+      margin: 0 auto 20px;
+      width: 160px;
     }
     h1 {
       text-align: center;
-      color: #2f3640;
+      color: #F37321;
+      font-size: 22px;
+      margin-bottom: 20px;
     }
     label {
-      font-weight: bold;
+      font-weight: 600;
       margin-top: 10px;
       display: block;
     }
     input, select {
       width: 100%;
-      padding: 8px;
+      padding: 10px 12px;
       margin-top: 5px;
-      border-radius: 5px;
+      border-radius: 6px;
       border: 1px solid #ccc;
       box-sizing: border-box;
+      font-size: 15px;
+    }
+    input:focus, select:focus {
+      border-color: #F37321;
+      outline: none;
     }
     button {
-      background-color: #007bff;
+      background-color: #F37321;
       color: white;
       border: none;
-      padding: 10px 20px;
+      padding: 12px 20px;
       margin-top: 15px;
-      border-radius: 5px;
+      border-radius: 6px;
       cursor: pointer;
       width: 100%;
+      font-size: 16px;
+      transition: background-color 0.3s ease;
     }
     button:hover {
-      background-color: #0056b3;
+      background-color: #D45E13;
     }
     #resultado {
       margin-top: 20px;
-      padding: 10px;
-      border-radius: 5px;
+      padding: 12px;
+      border-radius: 6px;
       display: none;
+      text-align: center;
+      font-weight: 600;
     }
     .ok { background-color: #d4edda; color: #155724; }
     .error { background-color: #f8d7da; color: #721c24; }
+    footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #777;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
+    <img src="https://bsale-io.s3.amazonaws.com/menu-v2/images/bsale-orange.svg" alt="Bsale logo" class="logo">
     <h1>Validador de Webhooks Bsale</h1>
+
     <label for="cpn">CPN ID</label>
     <input type="number" id="cpn" placeholder="Ej: 74244">
 
@@ -78,6 +104,8 @@
     <div id="resultado"></div>
   </div>
 
+  <footer>Herramienta interna de validación de Webhooks • Bsale © 2025</footer>
+
   <script>
     async function enviarWebhook() {
       const cpnId = document.getElementById('cpn').value.trim();
@@ -86,7 +114,7 @@
 
       const resultado = document.getElementById('resultado');
       resultado.style.display = 'block';
-      resultado.textContent = 'Enviando notificación...';
+      resultado.textContent = '⏳ Enviando notificación...';
       resultado.className = '';
 
       if (!cpnId || !url) {
@@ -111,11 +139,14 @@
       };
 
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
+        const response = await Promise.race([
+          fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de 3 segundos')), 3000))
+        ]);
 
         if (response.ok) {
           resultado.textContent = `✅ Webhook respondió correctamente (HTTP ${response.status})`;
