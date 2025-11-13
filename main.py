@@ -140,7 +140,7 @@ async def validate_webhook(request: Request):
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.post(url, json=payload)
             return {
-                "status": "ok",
+                "status": "URL Correcta",
                 "sent_to": url,
                 "cpnId": cpn_id,
                 "topic": topic,
