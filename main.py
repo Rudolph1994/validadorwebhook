@@ -90,7 +90,6 @@ document.getElementById("webhookForm").addEventListener("submit", async (e) => {
         });
         const json = await res.json();
 
-        // Colorear según resultado
         if (json.mensaje.startsWith("✅")) resultado.style.color = "green";
         else if (json.mensaje.startsWith("❌")) resultado.style.color = "red";
         else resultado.style.color = "orange";
@@ -133,23 +132,44 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
         duracion = round(time.time() - inicio, 2)
 
         if duracion > 3.0:
-            return JSONResponse({"mensaje": f"❌ El webhook superó el tiempo máximo permitido ({duracion} segundos)"})
-        
-        # Validar si la respuesta es JSON y no HTML
-        content_type = respuesta.headers.get("content-type", "")
-        if "application/json" not in content_type.lower():
-            return JSONResponse({"mensaje": f"⚠️ La URL respondió 200, pero no parece ser un webhook válido (Content-Type: {content_type})"})
+            return JSONResponse({"mensaje": f"❌ El webhook superó el tiempo máximo permitido ({duracion}s)"})
 
-        return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({respuesta.status_code}) en {duracion} segundos"})
+        status = respuesta.status_code
+        content_type = respuesta.headers.get("content-type", "").lower()
+        body = respuesta.text.strip().lower()
+
+        # 1️⃣ Código HTTP válido
+        if not (200 <= status < 300):
+            return JSONResponse({"mensaje": f"❌ El webhook respondió con código {status}, debe ser 2xx."})
+
+        # 2️⃣ Detectar páginas web (HTML)
+        if "text/html" in content_type or "<html" in body or "<!doctype" in body:
+            return JSONResponse({"mensaje": f"❌ La URL respondió {status}, pero parece una página web (Content-Type: {content_type})"})
+
+        # 3️⃣ Webhook típico (aceptamos vacío, JSON o textos comunes)
+        if (
+            body == "" or
+            "application/json" in content_type or
+            "json" in content_type or
+            "ok" in body or
+            "success" in body or
+            "ack" in body or
+            "processing" in body or
+            "received" in body
+        ):
+            return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({status}) en {duracion}s"})
+
+        # 4️⃣ Si pasa todo pero no se reconoce el cuerpo
+        return JSONResponse({"mensaje": f"⚠️ La URL respondió {status}, pero el contenido no parece típico de un webhook (Content-Type: {content_type})"})
 
     except httpx.ReadTimeout:
         duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"❌ El webhook no respondió dentro del tiempo permitido (timeout de {duracion} segundos)"})
+        return JSONResponse({"mensaje": f"❌ El webhook no respondió dentro del tiempo permitido (timeout de {duracion}s)"})
     except httpx.RequestError as e:
         duracion = round(time.time() - inicio, 2)
         if isinstance(e.__cause__, socket.gaierror):
-            return JSONResponse({"mensaje": f"❌ La URL indicada no es válida o no existe (tiempo transcurrido: {duracion} segundos)"})
-        return JSONResponse({"mensaje": f"⚠️ No se pudo conectar con el webhook: {str(e)} (duración: {duracion} segundos)"})
+            return JSONResponse({"mensaje": f"❌ La URL indicada no es válida o no existe ({duracion}s)"})
+        return JSONResponse({"mensaje": f"⚠️ No se pudo conectar con el webhook: {str(e)} ({duracion}s)"})
     except Exception as e:
         duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"⚠️ Error al enviar el webhook: {str(e)} (duración: {duracion} segundos)"})
+        return JSONResponse({"mensaje": f"⚠️ Error inesperado: {str(e)} ({duracion}s)"})
