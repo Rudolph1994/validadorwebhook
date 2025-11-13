@@ -1,152 +1,137 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 import time
 
-app = FastAPI(title="Validador de Webhooks Bsale")
+app = FastAPI()
+
+HTML_FORM = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Validador de Webhooks Bsale</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f7f9fb;
+            padding: 40px;
+        }
+        .container {
+            max-width: 520px;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: auto;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            font-size: 16px;
+        }
+        button {
+            background: #0078d4;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        button:hover {
+            background: #005fa3;
+        }
+        .resultado {
+            margin-top: 20px;
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Validador de Webhooks Bsale</h2>
+    <form id="webhookForm">
+        <label>ID de cuenta (CPN):</label>
+        <input type="number" name="cpn" required placeholder="Ej: 74244">
+
+        <label>Tipo de evento a probar:</label>
+        <select name="topic" required>
+            <option value="document">Documentos</option>
+            <option value="stock">Stock</option>
+        </select>
+
+        <label>URL del Webhook:</label>
+        <input type="url" name="url" required placeholder="https://tuwebhook.com/endpoint">
+
+        <button type="submit">Enviar prueba</button>
+    </form>
+    <div class="resultado" id="resultado"></div>
+</div>
+
+<script>
+document.getElementById("webhookForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    document.getElementById("resultado").innerText = "⏳ Enviando prueba...";
+    try {
+        const res = await fetch("/test_webhook", {
+            method: "POST",
+            body: new URLSearchParams(data),
+        });
+        const json = await res.json();
+        document.getElementById("resultado").innerText = json.mensaje;
+    } catch {
+        document.getElementById("resultado").innerText = "⚠️ No se pudo contactar con el servidor";
+    }
+});
+</script>
+</body>
+</html>
+"""
 
 
-# === Interfaz principal ===
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    html = """
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Validador de Webhooks Bsale</title>
-        <style>
-            body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:0; }
-            .container { max-width:600px; background:#fff; margin:50px auto; padding:30px; border-radius:12px;
-                        box-shadow:0 4px 12px rgba(0,0,0,0.1); }
-            h1 { color:#1E88E5; text-align:center; }
-            label { display:block; margin-top:15px; font-weight:600; }
-            input, select { width:100%; padding:8px; margin-top:5px; border-radius:6px; border:1px solid #ccc; }
-            button { margin-top:20px; width:100%; padding:12px; background:#1E88E5; color:white; border:none;
-                     border-radius:8px; font-size:16px; cursor:pointer; transition:0.2s; }
-            button:hover { background:#1565C0; }
-            pre { background:#f5f5f5; padding:15px; border-radius:10px; white-space:pre-wrap; word-break:break-all; }
-            .ok { color:green; font-weight:bold; }
-            .error { color:red; font-weight:bold; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Validador de Webhooks Bsale</h1>
-            <form id="form">
-                <label>CPN del cliente:</label>
-                <input type="number" id="cpn" required placeholder="Ej: 74244">
+    return HTML_FORM
 
-                <label>URL del Webhook:</label>
-                <input type="url" id="url" required placeholder="https://ejemplo.com/webhook">
 
-                <label>Tópico:</label>
-                <select id="topic" required>
-                    <option value="document">document</option>
-                    <option value="stock">stock</option>
-                </select>
-
-                <button type="submit">Validar Webhook</button>
-            </form>
-
-            <div id="result"></div>
-        </div>
-
-        <script>
-        document.getElementById("form").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            document.getElementById("result").innerHTML = "<p>Enviando notificación...</p>";
-
-            const data = {
-                cpnId: document.getElementById("cpn").value,
-                url: document.getElementById("url").value,
-                topic: document.getElementById("topic").value
-            };
-
-            try {
-                const res = await fetch("/validate-webhook", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(data)
-                });
-                const json = await res.json();
-
-                if (json.status === "ok") {
-                    document.getElementById("result").innerHTML = `
-                        <p class='ok'>✅ Notificación enviada correctamente</p>
-                        <pre>${JSON.stringify(json, null, 2)}</pre>
-                    `;
-                } else {
-                    document.getElementById("result").innerHTML = `
-                        <p class='error'>❌ Error al enviar</p>
-                        <pre>${JSON.stringify(json, null, 2)}</pre>
-                    `;
-                }
-            } catch (err) {
-                document.getElementById("result").innerHTML = `
-                    <p class='error'>❌ Error inesperado</p>
-                    <pre>${err}</pre>
-                `;
-            }
-        });
-        </script>
-    </body>
-    </html>
+@app.post("/test_webhook")
+async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = Form(...)):
     """
-    return HTMLResponse(content=html)
-
-
-# === Endpoint que valida el webhook ===
-@app.post("/validate-webhook")
-async def validate_webhook(request: Request):
-    data = await request.json()
-    cpn_id = data.get("cpnId")
-    url = data.get("url")
-    topic = data.get("topic")
-
-    if not cpn_id or not url or not topic:
-        return JSONResponse({"status": "error", "message": "Faltan datos (cpnId, url o topic)"}, status_code=400)
-
-    # --- Determinar la ruta según el topic ---
-    if topic == "stock":
-        resource = "/v2/stocks.json?variant=0&office=1"
-        resource_id = "0"
-        action = "put"
-        office_id = "1"
-    elif topic == "document":
-        resource = "/documents/0.json"
-        resource_id = "0"
-        action = "post"
-        office_id = "1"
-    else:
-        return JSONResponse({"status": "error", "message": "Topic inválido"}, status_code=400)
-
-    # --- Estructura JSON idéntica a Bsale ---
+    Envía una notificación simulada al webhook indicado y mide el tiempo de respuesta.
+    Si supera los 3 segundos (3000 ms), mostrará un mensaje de timeout.
+    """
     payload = {
         "rq": {
-            "cpnId": int(cpn_id),
-            "resource": resource,
-            "resourceId": resource_id,
+            "cpnId": cpn,
+            "resource": "/documents/0.json" if topic == "document" else "/v2/stocks.json?variant=0&office=1",
+            "resourceId": "0",
             "topic": topic,
-            "action": action,
-            "officeId": office_id,
+            "action": "put",
+            "officeId": "1",
             "send": int(time.time())
         }
     }
 
-    # --- Enviar POST al webhook del cliente ---
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.post(url, json=payload)
-            return {
-                "status": "URL Correcta",
-                "sent_to": url,
-                "cpnId": cpn_id,
-                "topic": topic,
-                "response_code": response.status_code,
-                "response_text": response.text[:500],
-                "payload_sent": payload
-            }
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            inicio = time.time()
+            respuesta = await client.post(url, json=payload)
+            duracion = round((time.time() - inicio) * 1000, 2)
+
+        if duracion > 3000:
+            return JSONResponse({"mensaje": f"❌ El webhook tardó demasiado en responder (timeout de {duracion} ms)"})
+
+        return JSONResponse({"mensaje": f"✅ Webhook respondió correctamente ({respuesta.status_code}) en {duracion} ms"})
+
+    except httpx.ReadTimeout:
+        return JSONResponse({"mensaje": "❌ El webhook superó el tiempo máximo de respuesta (timeout de 3 segundos)"})
     except Exception as e:
-        return {"status": "error", "message": str(e), "payload_sent": payload}
+        return JSONResponse({"mensaje": f"⚠️ Error al enviar el webhook: {str(e)}"})
