@@ -76,6 +76,21 @@ HTML_FORM = """<!DOCTYPE html>
     .ok { background-color: #d4edda; color: #155724; }
     .error { background-color: #f8d7da; color: #721c24; }
     .alerta { background-color: #fff3cd; color: #856404; }
+
+    /* Recuadro respuesta */
+    #respuestaWebhook {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      font-size: 14px;
+      white-space: pre-wrap;
+      max-height: 350px;
+      overflow-y: auto;
+      display: none;
+      text-align: left;
+      border: 1px solid #ccc;
+    }
   </style>
 </head>
 <body>
@@ -97,6 +112,8 @@ HTML_FORM = """<!DOCTYPE html>
     <button onclick="enviarWebhook()">Enviar prueba</button>
 
     <div id="resultado"></div>
+
+    <pre id="respuestaWebhook"></pre>
   </div>
 
   <script>
@@ -105,10 +122,14 @@ HTML_FORM = """<!DOCTYPE html>
       const url = document.getElementById('url').value.trim();
       const topic = document.getElementById('topic').value;
       const resultado = document.getElementById('resultado');
+      const respuestaBox = document.getElementById('respuestaWebhook');
 
       resultado.style.display = 'block';
       resultado.className = '';
       resultado.textContent = '⏳ Enviando notificación de prueba...';
+
+      respuestaBox.style.display = "none";
+      respuestaBox.textContent = "";
 
       if (!cpnId || !url) {
         resultado.textContent = '⚠️ Debes ingresar el ID de cuenta y la URL del webhook.';
@@ -124,9 +145,16 @@ HTML_FORM = """<!DOCTYPE html>
 
         const json = await res.json();
         resultado.textContent = json.mensaje;
+
         if (json.mensaje.startsWith("✅")) resultado.className = 'ok';
         else if (json.mensaje.startsWith("⚠️")) resultado.className = 'alerta';
         else resultado.className = 'error';
+
+        if (json.respuesta_cuerpo !== undefined) {
+          respuestaBox.style.display = "block";
+          respuestaBox.textContent = json.respuesta_cuerpo || "(sin contenido)";
+        }
+
       } catch (error) {
         resultado.textContent = "❌ No se pudo contactar con el validador. Intenta nuevamente.";
         resultado.className = 'error';
@@ -151,7 +179,10 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
     ]
 
     if url in integradores_frecuentes:
-        return JSONResponse({"mensaje": f"✅ La URL {url} es un integrador oficial y se considera válida automáticamente."})
+        return JSONResponse({
+            "mensaje": f"✅ La URL {url} es un integrador oficial y se considera válida automáticamente.",
+            "respuesta_cuerpo": ""
+        })
 
     payload = {
         "rq": {
@@ -175,48 +206,79 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
 
         # Timeout
         if duracion > 3.0:
-            return JSONResponse({"mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale lo considera una falla."})
+            return JSONResponse({
+                "mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale lo considera una falla.",
+                "respuesta_cuerpo": ""
+            })
 
         # Código HTTP
         if not (200 <= respuesta.status_code < 300):
             if respuesta.status_code == 405:
-                return JSONResponse({"mensaje": "❌ El webhook no acepta solicitudes POST. Revisa su configuración."})
-            return JSONResponse({"mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code})."})
+                return JSONResponse({
+                    "mensaje": "❌ El webhook no acepta solicitudes POST. Revisa su configuración.",
+                    "respuesta_cuerpo": respuesta.text
+                })
+            return JSONResponse({
+                "mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code}).",
+                "respuesta_cuerpo": respuesta.text
+            })
 
-        # Cuerpo de la respuesta
         cuerpo = respuesta.text or ""
         tamano = len(cuerpo)
-
-        # --- Nueva lógica correcta ---
-        # 1) Si la respuesta es 2xx → valido salvo que sea claramente una página web
         texto = cuerpo.lower()
 
         patrones_web = ["<html", "<head", "<script", "wp-content", "woocommerce"]
 
-        # Si no hay body → válido (RequestCatcher)
+        # Respuesta vacía → válido
         if tamano == 0:
-            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (sin contenido)."})
+            return JSONResponse({
+                "mensaje": f"✅ El webhook respondió correctamente en {duracion}s (sin contenido).",
+                "respuesta_cuerpo": ""
+            })
 
-        # Si tiene patrones claros de página web
+        # Parece página web
         if any(p in texto for p in patrones_web):
-            # HTML pequeño permitido
             if tamano < 2000:
-                return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (HTML simple)."})
-            return JSONResponse({"mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook."})
+                return JSONResponse({
+                    "mensaje": f"✅ El webhook respondió correctamente en {duracion}s (HTML simple).",
+                    "respuesta_cuerpo": cuerpo
+                })
+            return JSONResponse({
+                "mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook.",
+                "respuesta_cuerpo": cuerpo
+            })
 
-        # Si es contenido pequeño → válido
+        # Contenido normal (<5000 chars)
         if tamano < 5000:
-            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s."})
+            return JSONResponse({
+                "mensaje": f"✅ El webhook respondió correctamente en {duracion}s.",
+                "respuesta_cuerpo": cuerpo
+            })
 
-        return JSONResponse({"mensaje": "⚠️ La URL respondió 200, pero su contenido es inusual para un webhook."})
+        return JSONResponse({
+            "mensaje": "⚠️ La URL respondió 200, pero su contenido es inusual para un webhook.",
+            "respuesta_cuerpo": cuerpo
+        })
 
     except httpx.ReadTimeout:
-        return JSONResponse({"mensaje": "⏱ El webhook no respondió dentro de los 3 segundos permitidos."})
+        return JSONResponse({
+            "mensaje": "⏱ El webhook no respondió dentro de los 3 segundos permitidos.",
+            "respuesta_cuerpo": ""
+        })
 
     except httpx.RequestError as e:
         if isinstance(e.__cause__, socket.gaierror):
-            return JSONResponse({"mensaje": "❌ La URL ingresada no existe o no se pudo resolver."})
-        return JSONResponse({"mensaje": "❌ No se pudo conectar con la URL del webhook. Verifica que esté activa."})
+            return JSONResponse({
+                "mensaje": "❌ La URL ingresada no existe o no se pudo resolver.",
+                "respuesta_cuerpo": ""
+            })
+        return JSONResponse({
+            "mensaje": "❌ No se pudo conectar con la URL del webhook.",
+            "respuesta_cuerpo": ""
+        })
 
     except Exception as e:
-        return JSONResponse({"mensaje": f"⚠️ Error inesperado: {str(e)}"})
+        return JSONResponse({
+            "mensaje": f"⚠️ Error inesperado: {str(e)}",
+            "respuesta_cuerpo": ""
+        })
