@@ -145,7 +145,7 @@ async def home():
 @app.post("/test_webhook")
 async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = Form(...)):
 
-    # Lista de URLs de integradores oficiales que deben marcarse como válidas automáticamente
+    # Integradores oficiales
     integradores_frecuentes = [
         "https://app.jumpseller.com/bsale/notifications"
     ]
@@ -173,47 +173,42 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
 
         duracion = round(time.time() - inicio, 2)
 
-        # Verificar timeout
+        # Timeout
         if duracion > 3.0:
             return JSONResponse({"mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale lo considera una falla."})
 
-        # Verificar código HTTP
+        # Código HTTP
         if not (200 <= respuesta.status_code < 300):
             if respuesta.status_code == 405:
                 return JSONResponse({"mensaje": "❌ El webhook no acepta solicitudes POST. Revisa su configuración."})
             return JSONResponse({"mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code})."})
 
-        # Análisis de cuerpo
+        # Cuerpo de la respuesta
         cuerpo = respuesta.text or ""
         tamano = len(cuerpo)
 
-        # 1. Si el cuerpo es muy grande → no es webhook
-        if tamano > 5000:
-            return JSONResponse({"mensaje": "❌ La URL respondió con una página web muy grande. Esto no corresponde a un webhook."})
+        # --- Nueva lógica correcta ---
+        # 1) Si la respuesta es 2xx → valido salvo que sea claramente una página web
+        texto = cuerpo.lower()
 
-        # 2. HTML simple (como RequestCatcher) debe ser aceptado
-        if "<html" in cuerpo.lower():
-            # Contenido seguro mientras sea pequeño y sin elementos web
-            if tamano < 2000 and not any(
-                tag in cuerpo.lower() for tag in ["<script", "<style", "wp-content", "woocommerce"]
-            ):
-                return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (contenido HTML simple)."})
-                
-            # Si tiene título complejo, se rechaza
-            titulo = re.findall(r"<title>(.*?)</title>", cuerpo, re.IGNORECASE)
-            if titulo and len(titulo[0]) > 0 and len(titulo[0]) > 20:
-                return JSONResponse({"mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook."})
+        patrones_web = ["<html", "<head", "<script", "wp-content", "woocommerce"]
 
-        # 3. Si tiene scripts, estilos o WordPress → no es webhook
-        if any(tag in cuerpo.lower() for tag in ["<script", "<style", "wp-content", "woocommerce"]):
-            return JSONResponse({"mensaje": "❌ La respuesta contiene contenido de un sitio web. No es un webhook válido."})
+        # Si no hay body → válido (RequestCatcher)
+        if tamano == 0:
+            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (sin contenido)."})
 
-        # 4. Si no tiene HTML o es muy pequeño → aceptar
-        if tamano < 2000:
-            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (código {respuesta.status_code})."})
+        # Si tiene patrones claros de página web
+        if any(p in texto for p in patrones_web):
+            # HTML pequeño permitido
+            if tamano < 2000:
+                return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (HTML simple)."})
+            return JSONResponse({"mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook."})
 
-        # 5. Fallback
-        return JSONResponse({"mensaje": f"⚠️ La URL respondió 200, pero su contenido no coincide con un webhook habitual."})
+        # Si es contenido pequeño → válido
+        if tamano < 5000:
+            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s."})
+
+        return JSONResponse({"mensaje": "⚠️ La URL respondió 200, pero su contenido es inusual para un webhook."})
 
     except httpx.ReadTimeout:
         return JSONResponse({"mensaje": "⏱ El webhook no respondió dentro de los 3 segundos permitidos."})
