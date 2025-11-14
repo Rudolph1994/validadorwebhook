@@ -191,10 +191,17 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
         if tamano > 5000:
             return JSONResponse({"mensaje": "❌ La URL respondió con una página web muy grande. Esto no corresponde a un webhook."})
 
-        # 2. Si tiene HTML completo con título extraño → no es webhook
-        if "<html" in cuerpo.lower() and "<title" in cuerpo.lower():
+        # 2. HTML simple (como RequestCatcher) debe ser aceptado
+        if "<html" in cuerpo.lower():
+            # Contenido seguro mientras sea pequeño y sin elementos web
+            if tamano < 2000 and not any(
+                tag in cuerpo.lower() for tag in ["<script", "<style", "wp-content", "woocommerce"]
+            ):
+                return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (contenido HTML simple)."})
+                
+            # Si tiene título complejo, se rechaza
             titulo = re.findall(r"<title>(.*?)</title>", cuerpo, re.IGNORECASE)
-            if titulo and len(titulo[0]) > 0 and "webhook" not in titulo[0].lower() and "api" not in titulo[0].lower():
+            if titulo and len(titulo[0]) > 0 and len(titulo[0]) > 20:
                 return JSONResponse({"mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook."})
 
         # 3. Si tiene scripts, estilos o WordPress → no es webhook
