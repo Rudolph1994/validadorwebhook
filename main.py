@@ -175,12 +175,12 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
 
     # --- Payload realista ---
     if topic == "document":
-        resource = "/documents/123.json"
-        resourceId = "123"
+        resource = "/documents/0.json"
+        resourceId = "0"
         action = "post"
     else:
-        resource = "/v2/stocks.json?variant=999&office=1"
-        resourceId = "999"
+        resource = "/v2/stocks.json?variant=0&office=1"
+        resourceId = "0"
         action = "put"
 
     payload = {
