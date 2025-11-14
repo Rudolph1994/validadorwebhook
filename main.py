@@ -65,32 +65,19 @@ HTML_FORM = """<!DOCTYPE html>
     button:hover {
       background-color: #e65c00;
     }
-    #resultado {
+    #resultado, #respuesta_webhook {
       margin-top: 20px;
       padding: 15px;
       border-radius: 6px;
       display: none;
       font-size: 16px;
       font-weight: bold;
+      text-align: left;
+      white-space: pre-wrap;
     }
     .ok { background-color: #d4edda; color: #155724; }
     .error { background-color: #f8d7da; color: #721c24; }
     .alerta { background-color: #fff3cd; color: #856404; }
-
-    /* Recuadro respuesta */
-    #respuestaWebhook {
-      margin-top: 20px;
-      padding: 15px;
-      border-radius: 6px;
-      background: #f0f0f0;
-      font-size: 14px;
-      white-space: pre-wrap;
-      max-height: 350px;
-      overflow-y: auto;
-      display: none;
-      text-align: left;
-      border: 1px solid #ccc;
-    }
   </style>
 </head>
 <body>
@@ -112,8 +99,7 @@ HTML_FORM = """<!DOCTYPE html>
     <button onclick="enviarWebhook()">Enviar prueba</button>
 
     <div id="resultado"></div>
-
-    <pre id="respuestaWebhook"></pre>
+    <div id="respuesta_webhook"></div>
   </div>
 
   <script>
@@ -121,15 +107,16 @@ HTML_FORM = """<!DOCTYPE html>
       const cpnId = document.getElementById('cpn').value.trim();
       const url = document.getElementById('url').value.trim();
       const topic = document.getElementById('topic').value;
+
       const resultado = document.getElementById('resultado');
-      const respuestaBox = document.getElementById('respuestaWebhook');
+      const respBox = document.getElementById('respuesta_webhook');
 
       resultado.style.display = 'block';
       resultado.className = '';
       resultado.textContent = '⏳ Enviando notificación de prueba...';
 
-      respuestaBox.style.display = "none";
-      respuestaBox.textContent = "";
+      respBox.style.display = 'none';
+      respBox.textContent = '';
 
       if (!cpnId || !url) {
         resultado.textContent = '⚠️ Debes ingresar el ID de cuenta y la URL del webhook.';
@@ -144,6 +131,7 @@ HTML_FORM = """<!DOCTYPE html>
         });
 
         const json = await res.json();
+
         resultado.textContent = json.mensaje;
 
         if (json.mensaje.startsWith("✅")) resultado.className = 'ok';
@@ -151,8 +139,9 @@ HTML_FORM = """<!DOCTYPE html>
         else resultado.className = 'error';
 
         if (json.respuesta_cuerpo !== undefined) {
-          respuestaBox.style.display = "block";
-          respuestaBox.textContent = json.respuesta_cuerpo || "(sin contenido)";
+          respBox.style.display = 'block';
+          respBox.className = 'alerta';
+          respBox.textContent = json.respuesta_cuerpo || "(sin contenido)";
         }
 
       } catch (error) {
@@ -184,13 +173,23 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
             "respuesta_cuerpo": ""
         })
 
+    # --- Payload realista ---
+    if topic == "document":
+        resource = "/documents/123.json"
+        resourceId = "123"
+        action = "post"
+    else:
+        resource = "/v2/stocks.json?variant=999&office=1"
+        resourceId = "999"
+        action = "put"
+
     payload = {
         "rq": {
-            "cpnId": cpn,
-            "resource": "/documents/0.json" if topic == "document" else "/v2/stocks.json?variant=0&office=1",
-            "resourceId": "0",
+            "cpnId": int(cpn),
+            "resource": resource,
+            "resourceId": resourceId,
             "topic": topic,
-            "action": "put",
+            "action": action,
             "officeId": "1",
             "send": int(time.time())
         }
@@ -203,12 +202,14 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
             respuesta = await client.post(url, json=payload)
 
         duracion = round(time.time() - inicio, 2)
+        cuerpo = respuesta.text or ""
+        tamano = len(cuerpo)
 
         # Timeout
         if duracion > 3.0:
             return JSONResponse({
                 "mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale lo considera una falla.",
-                "respuesta_cuerpo": ""
+                "respuesta_cuerpo": cuerpo
             })
 
         # Código HTTP
@@ -216,27 +217,23 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
             if respuesta.status_code == 405:
                 return JSONResponse({
                     "mensaje": "❌ El webhook no acepta solicitudes POST. Revisa su configuración.",
-                    "respuesta_cuerpo": respuesta.text
+                    "respuesta_cuerpo": cuerpo
                 })
             return JSONResponse({
                 "mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code}).",
-                "respuesta_cuerpo": respuesta.text
+                "respuesta_cuerpo": cuerpo
             })
 
-        cuerpo = respuesta.text or ""
-        tamano = len(cuerpo)
-        texto = cuerpo.lower()
-
-        patrones_web = ["<html", "<head", "<script", "wp-content", "woocommerce"]
-
-        # Respuesta vacía → válido
+        # Si body vacío → válido (request catcher o integrador simple)
         if tamano == 0:
             return JSONResponse({
-                "mensaje": f"✅ El webhook respondió correctamente en {duracion}s (sin contenido).",
+                "mensaje": f"✅ El webhook respondió correctamente en {duracion}s.",
                 "respuesta_cuerpo": ""
             })
 
-        # Parece página web
+        texto = cuerpo.lower()
+        patrones_web = ["<html", "<head", "<script", "wp-content", "woocommerce"]
+
         if any(p in texto for p in patrones_web):
             if tamano < 2000:
                 return JSONResponse({
@@ -248,7 +245,6 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
                 "respuesta_cuerpo": cuerpo
             })
 
-        # Contenido normal (<5000 chars)
         if tamano < 5000:
             return JSONResponse({
                 "mensaje": f"✅ El webhook respondió correctamente en {duracion}s.",
@@ -256,7 +252,7 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
             })
 
         return JSONResponse({
-            "mensaje": "⚠️ La URL respondió 200, pero su contenido es inusual para un webhook.",
+            "mensaje": "⚠️ La URL respondió 200, pero el contenido es inusual para un webhook.",
             "respuesta_cuerpo": cuerpo
         })
 
@@ -273,7 +269,7 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
                 "respuesta_cuerpo": ""
             })
         return JSONResponse({
-            "mensaje": "❌ No se pudo conectar con la URL del webhook.",
+            "mensaje": "❌ No se pudo conectar con la URL del webhook. Verifica que esté activa.",
             "respuesta_cuerpo": ""
         })
 
