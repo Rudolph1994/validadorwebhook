@@ -3,11 +3,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 import time
 import socket
+import re
 
 app = FastAPI()
 
-HTML_FORM = """
-<!DOCTYPE html>
+HTML_FORM = """<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -144,14 +144,15 @@ async def home():
 
 @app.post("/test_webhook")
 async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = Form(...)):
-    # URLs de integradores frecuentes que siempre consideramos válidas
+
+    # Lista de URLs de integradores oficiales que deben marcarse como válidas automáticamente
     integradores_frecuentes = [
         "https://app.jumpseller.com/bsale/notifications"
     ]
 
-    # Si la URL es de un integrador frecuente, devolver OK automáticamente
     if url in integradores_frecuentes:
-        return JSONResponse({"mensaje": f"✅ La URL {url} es de un integrador frecuente y se considera válida automáticamente."})
+        return JSONResponse({"mensaje": f"✅ La URL {url} es un integrador oficial y se considera válida automáticamente."})
+
     payload = {
         "rq": {
             "cpnId": cpn,
@@ -165,39 +166,55 @@ async def test_webhook(cpn: str = Form(...), topic: str = Form(...), url: str = 
     }
 
     inicio = time.time()
+
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             respuesta = await client.post(url, json=payload)
+
         duracion = round(time.time() - inicio, 2)
 
-        # Rechazar si se demoró más de 3 segundos
+        # Verificar timeout
         if duracion > 3.0:
-            return JSONResponse({"mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale considera esto como una falla."})
+            return JSONResponse({"mensaje": f"⏱ El webhook tardó más de 3 segundos en responder ({duracion}s). Bsale lo considera una falla."})
 
-        # Validar tipo de contenido
-        content_type = respuesta.headers.get("content-type", "").lower()
-        if "application/json" not in content_type and "text/json" not in content_type:
-            return JSONResponse({"mensaje": f"⚠️ La URL respondió correctamente, pero no parece ser un webhook válido (tipo de respuesta: {content_type})."})
-
-        # Validar código HTTP
+        # Verificar código HTTP
         if not (200 <= respuesta.status_code < 300):
             if respuesta.status_code == 405:
-                return JSONResponse({"mensaje": "❌ El webhook no acepta solicitudes de tipo POST. Verifica que esté configurado correctamente."})
+                return JSONResponse({"mensaje": "❌ El webhook no acepta solicitudes POST. Revisa su configuración."})
             return JSONResponse({"mensaje": f"❌ El webhook respondió con un error (código {respuesta.status_code})."})
 
-        # OK
-        return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion} segundos (código {respuesta.status_code})."})
+        # Análisis de cuerpo
+        cuerpo = respuesta.text or ""
+        tamano = len(cuerpo)
+
+        # 1. Si el cuerpo es muy grande → no es webhook
+        if tamano > 5000:
+            return JSONResponse({"mensaje": "❌ La URL respondió con una página web muy grande. Esto no corresponde a un webhook."})
+
+        # 2. Si tiene HTML completo con título extraño → no es webhook
+        if "<html" in cuerpo.lower() and "<title" in cuerpo.lower():
+            titulo = re.findall(r"<title>(.*?)</title>", cuerpo, re.IGNORECASE)
+            if titulo and len(titulo[0]) > 0 and "webhook" not in titulo[0].lower() and "api" not in titulo[0].lower():
+                return JSONResponse({"mensaje": "❌ La URL parece ser una página web y no un endpoint de webhook."})
+
+        # 3. Si tiene scripts, estilos o WordPress → no es webhook
+        if any(tag in cuerpo.lower() for tag in ["<script", "<style", "wp-content", "woocommerce"]):
+            return JSONResponse({"mensaje": "❌ La respuesta contiene contenido de un sitio web. No es un webhook válido."})
+
+        # 4. Si no tiene HTML o es muy pequeño → aceptar
+        if tamano < 2000:
+            return JSONResponse({"mensaje": f"✅ El webhook respondió correctamente en {duracion}s (código {respuesta.status_code})."})
+
+        # 5. Fallback
+        return JSONResponse({"mensaje": f"⚠️ La URL respondió 200, pero su contenido no coincide con un webhook habitual."})
 
     except httpx.ReadTimeout:
-        duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"⏱ El webhook no respondió dentro del tiempo permitido (3 segundos). Bsale considera esto como una falla."})
+        return JSONResponse({"mensaje": "⏱ El webhook no respondió dentro de los 3 segundos permitidos."})
 
     except httpx.RequestError as e:
-        duracion = round(time.time() - inicio, 2)
         if isinstance(e.__cause__, socket.gaierror):
-            return JSONResponse({"mensaje": f"❌ La dirección ingresada no existe o no se pudo conectar ({duracion}s)."})
-        return JSONResponse({"mensaje": f"⚠️ No se pudo establecer conexión con la URL del webhook ({duracion}s). Verifica la dirección."})
+            return JSONResponse({"mensaje": "❌ La URL ingresada no existe o no se pudo resolver."})
+        return JSONResponse({"mensaje": "❌ No se pudo conectar con la URL del webhook. Verifica que esté activa."})
 
     except Exception as e:
-        duracion = round(time.time() - inicio, 2)
-        return JSONResponse({"mensaje": f"⚠️ Error inesperado al intentar enviar la notificación: {str(e)} ({duracion}s)."})
+        return JSONResponse({"mensaje": f"⚠️ Error inesperado: {str(e)}"})
